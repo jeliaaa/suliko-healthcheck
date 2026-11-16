@@ -1,0 +1,76 @@
+# Non-secret settings. Secrets (passwords, API keys, phone numbers) live in .env.
+# Every key can be overridden by an env var HC_<SECTION>_<KEY> (e.g. HC_API_BASE_URL).
+
+[api]
+base_url = "https://content.api24.ge"
+timeout_seconds = 20
+
+[site]
+# Public pages the customer actually sees. Each must answer 2xx (redirects are followed).
+pages = [
+  "https://www.suliko.ge/",
+  "https://www.suliko.ge/ka/price",
+]
+
+[auth]
+# /api/Auth/token with the dedicated test account (HC_TEST_USERNAME / HC_TEST_PASSWORD in .env),
+# then an authenticated call to prove the token is accepted.
+authenticated_path = "/api/Subscription/me"
+
+[office_sso]
+# Every address the API is allowed to hand an SSO code to. Mirrors OfficeSsoController defaults;
+# if you set Office:SsoRedirectUris on the server, mirror that list here.
+redirect_uris = [
+  "https://app.suliko.ge/api/auth/sso/callback",
+  "https://office.suliko.ge/api/auth/sso/callback",
+  "https://suliko.ge/app/api/auth/sso/callback",
+  "https://www.suliko.ge/app/api/auth/sso/callback",
+]
+
+[job]
+# Starts a real (tiny) translation job and waits for it. This spends a little of the test
+# account's balance and one AI call per run -- keep the test account topped up.
+enabled = true
+model = "Gemini3Flash"            # cheapest model in AIModel
+output_format = "Txt"
+target_language = "English"       # matched against /api/Language/public Name
+wait_for_completion = true        # false = only require that the job leaves the queue
+start_timeout_seconds = 90        # job must report progress (left "Queued") within this
+complete_timeout_seconds = 300    # only used if wait_for_completion = true
+poll_seconds = 5
+
+[host]
+# Run on the same box as IIS / Postgres / OCR.
+disk_paths = ["C:\\", "D:\\"]
+min_free_disk_percent = 10
+min_free_disk_gb = 5
+max_memory_used_percent = 92
+tcp_ports = [
+  { name = "postgres", host = "127.0.0.1", port = 5432 },
+  { name = "ocr-service", host = "127.0.0.1", port = 8000, severity = "warning" },
+]
+
+[tls]
+hosts = ["content.api24.ge", "www.suliko.ge", "suliko.ge"]
+warn_days = 14
+critical_days = 5
+
+[email_gateway]
+# Verifies the SMTP login the API uses for verification / reset emails (and for these alerts).
+check_login = true
+
+[alerts]
+email_to = ["info@th.com.ge"]
+sms_on = "critical"               # "critical" = SMS only for critical failures; "all" = every alert
+repeat_after_hours = 6            # re-send while the same failure persists
+send_recovery = true
+retries = 1                       # re-run a failing check this many times before counting it
+retry_delay_seconds = 20
+
+[state]
+file = "state/state.json"
+
+[logging]
+file = "logs/healthcheck.log"
+max_bytes = 2000000
+backup_count = 14
