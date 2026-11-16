@@ -1,4 +1,4 @@
-"""Alert delivery: email (SMTP) and SMS (smsoffice.ge, the gateway the API already uses)."""
+"""Alert delivery: email (SMTP) and SMS (Ubill if HC_SMS_API_KEY_UBILL is set, else smsoffice.ge)."""
 
 from __future__ import annotations
 
@@ -22,12 +22,13 @@ log = logging.getLogger("hc.notify")
 
 SMS_API_URL = "https://smsoffice.ge/api/v2/send/"   # same endpoint as SmsNotificationService
 SMS_SENDER = "SULIKO.GE"                             # same sender name the API uses
+UBILL_SEND_URL = "https://api.ubill.dev/v1/sms/send"  # POST, API key as ?key=, JSON body
 
 
 # ----------------------------------------------------------------------------- email
 
 def send_email(cfg: Config, subject: str, text: str, html_body: str | None = None) -> None:
-    host = env("HC_SMTP_HOST", "smtp.gmail.com")
+    host = env("HC_SMTP_HOST", "smtp-relay.brevo.com")
     port = int(env("HC_SMTP_PORT", "587"))
     user = env("HC_SMTP_USERNAME")
     password = env("HC_SMTP_PASSWORD")
@@ -73,11 +74,40 @@ def _ci_get(data: dict, key: str):
     return None
 
 
+def _send_sms_ubill(text: str, numbers: list[str]) -> None:
+    api_key, brand = env("HC_SMS_API_KEY_UBILL"), env("HC_SMS_BRAND_ID")
+    if not brand.isdigit():
+        raise RuntimeError("HC_SMS_BRAND_ID must be the numeric Ubill brand id")
+    msisdns = []
+    for n in numbers:
+        digits = re.sub(r"\D", "", normalize_phone(n))
+        msisdns.append(int(digits))
+    try:
+        resp = requests.post(
+            UBILL_SEND_URL,
+            params={"key": api_key},
+            json={"brandID": int(brand), "numbers": msisdns, "text": text, "stopList": False},
+            timeout=30,
+        )
+        body = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise RuntimeError(f"ubill: {type(exc).__name__}") from exc
+    status = _ci_get(body, "statusID")
+    if not resp.ok or status not in (0, 200):
+        raise RuntimeError(f"ubill: HTTP {resp.status_code} statusID={status} {_ci_get(body, 'message') or ''}".strip())
+
+
 def send_sms(text: str) -> None:
+    numbers = [n.strip() for n in env("HC_SMS_NUMBERS").split(",") if n.strip()]
+    if env("HC_SMS_API_KEY_UBILL"):
+        if not numbers:
+            raise RuntimeError("HC_SMS_NUMBERS is not set")
+        _send_sms_ubill(text, numbers)
+        return
+
     api_key = env("HC_SMS_API_KEY")
-    numbers = [n for n in env("HC_SMS_NUMBERS").split(",") if n.strip()]
     if not api_key or not numbers:
-        raise RuntimeError("HC_SMS_API_KEY / HC_SMS_NUMBERS are not set")
+        raise RuntimeError("HC_SMS_API_KEY_UBILL (+HC_SMS_BRAND_ID) or HC_SMS_API_KEY, and HC_SMS_NUMBERS, are not set")
 
     errors = []
     for number in numbers:

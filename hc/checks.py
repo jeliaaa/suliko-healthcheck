@@ -181,7 +181,8 @@ def auth_authenticated_call(ctx: Ctx) -> Result:
         return Result("auth_authenticated_call", False, f"no token: {err}")
     path = ctx.cfg.get("auth", "authenticated_path", "/api/Subscription/me")
     r = ctx.get(path, headers=ctx.bearer())
-    ok = r.status_code == 200
+    # 200 = has a subscription, 204 = signed in but none: both prove the bearer token is accepted.
+    ok = r.status_code in (200, 204)
     return Result("auth_authenticated_call", ok, f"GET {path} -> HTTP {r.status_code}")
 
 
@@ -279,7 +280,11 @@ def job_start(ctx: Ctx) -> Result:
 
     want = str(cfg.get("job", "target_language", "English")).lower()
     langs = jget(ctx.get("/api/Language/public").json(), "languages") or []
-    lang_id = next((jget(x, "id") for x in langs if want in (str(jget(x, "name")).lower(), str(jget(x, "nameGeo")).lower())), None)
+    def _lang_names(x):
+        name = str(jget(x, "name")).strip().lower()
+        return {name, name.removesuffix(" language").strip(), str(jget(x, "nameGeo")).strip().lower()}
+
+    lang_id = next((jget(x, "id") for x in langs if want in _lang_names(x)), None)
     if lang_id is None:
         return Result("job_start", False, f"language '{want}' not found in /api/Language/public")
 
@@ -412,7 +417,7 @@ def smtp_login(ctx: Ctx) -> Result:
     """The SMTP account sends verification codes, password resets AND these alerts."""
     if not ctx.cfg.get("email_gateway", "check_login", True):
         return Result("smtp_login", True, "skipped: disabled", skipped=True)
-    host, port = env("HC_SMTP_HOST", "smtp.gmail.com"), int(env("HC_SMTP_PORT", "587"))
+    host, port = env("HC_SMTP_HOST", "smtp-relay.brevo.com"), int(env("HC_SMTP_PORT", "587"))
     user, password = env("HC_SMTP_USERNAME"), env("HC_SMTP_PASSWORD")
     if not (user and password):
         return Result("smtp_login", True, "skipped: SMTP credentials not set", skipped=True)
@@ -427,10 +432,11 @@ def smtp_login(ctx: Ctx) -> Result:
 
 @check("sms_gateway", "gateway")
 def sms_gateway(ctx: Ctx) -> Result:
+    url = "https://api.ubill.dev/" if env("HC_SMS_API_KEY_UBILL") else "https://smsoffice.ge/"
     try:
-        r = requests.get("https://smsoffice.ge/", timeout=15)
+        r = requests.get(url, timeout=15)
     except requests.RequestException as exc:
-        return Result("sms_gateway", False, f"smsoffice.ge unreachable: {type(exc).__name__}", severity=WARNING)
+        return Result("sms_gateway", False, f"{url} unreachable: {type(exc).__name__}", severity=WARNING)
     return Result("sms_gateway", r.status_code < 500, f"HTTP {r.status_code}", severity=WARNING)
 
 

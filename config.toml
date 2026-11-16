@@ -47,7 +47,7 @@ min_free_disk_gb = 5
 max_memory_used_percent = 92
 tcp_ports = [
   { name = "postgres", host = "127.0.0.1", port = 5432 },
-  { name = "ocr-service", host = "127.0.0.1", port = 8000, severity = "warning" },
+  { name = "ocr-service", host = "127.0.0.1", port = 8001, severity = "warning" },
 ]
 
 [tls]
